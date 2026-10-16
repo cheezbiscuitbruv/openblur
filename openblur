@@ -1,0 +1,154 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+set -Eeuo pipefail
+
+INPUT="$HOME/.openblur-input"
+RUNSCRIPT="$HOME/.openblur-run.vpy"
+ENGINE="$HOME/openblur/openblur.vpy"
+OUTDIR="$HOME/storage/shared/Movies/OpenBlur"
+
+cleanup() {
+    rm -f "$INPUT" "$RUNSCRIPT"
+}
+trap cleanup EXIT
+
+echo
+echo "================================"
+echo "           🎬 OpenBlur"
+echo "================================"
+echo
+
+# --------------------------------------------------
+# Check Android storage
+# --------------------------------------------------
+
+if [ ! -d "$HOME/storage/shared" ]; then
+    echo "📱 Requesting Android storage permission..."
+    termux-setup-storage
+    sleep 2
+fi
+
+if [ ! -d "$HOME/storage/shared" ]; then
+    echo "❌ Android storage is unavailable."
+    exit 1
+fi
+
+# --------------------------------------------------
+# Native Android picker
+# --------------------------------------------------
+
+rm -f "$INPUT"
+
+echo "📂 Select a video..."
+echo
+
+termux-storage-get "$INPUT"
+
+for _ in $(seq 1 30); do
+    [ -s "$INPUT" ] && break
+    sleep 1
+done
+
+if [ ! -s "$INPUT" ]; then
+    echo
+    echo "❌ No video was selected."
+    exit 1
+fi
+
+# --------------------------------------------------
+# Blur intensity
+# --------------------------------------------------
+
+echo
+echo "Choose blur intensity:"
+echo
+echo "  1) Light       25"
+echo "  2) Balanced    50"
+echo "  3) Heavy      100"
+echo "  4) Real Heavy 200"
+echo
+
+read -r -p "Choice [1-4]: " CHOICE
+
+case "$CHOICE" in
+    1) BLUR=25 ;;
+    2) BLUR=50 ;;
+    3) BLUR=100 ;;
+    4) BLUR=200 ;;
+    *)
+        echo "❌ Invalid choice."
+        exit 1
+        ;;
+esac
+
+# --------------------------------------------------
+# Output naming
+# --------------------------------------------------
+
+mkdir -p "$OUTDIR"
+
+BASE="openblur_${BLUR}"
+OUTPUT="$OUTDIR/${BASE}.mp4"
+N=1
+
+while [ -e "$OUTPUT" ]; do
+    OUTPUT="$OUTDIR/${BASE}_${N}.mp4"
+    N=$((N + 1))
+done
+
+# --------------------------------------------------
+# Generate VapourSynth script
+# --------------------------------------------------
+
+sed \
+    -e "s|__INPUT__|$INPUT|g" \
+    -e "s|__BLUR__|$BLUR|g" \
+    "$ENGINE" \
+    > "$RUNSCRIPT"
+
+echo
+echo "================================"
+echo "⚙️ Processing"
+echo "Blur: $BLUR"
+echo "Output:"
+echo "$OUTPUT"
+echo "================================"
+echo
+
+# --------------------------------------------------
+# Motion blur + audio
+# --------------------------------------------------
+
+vspipe "$RUNSCRIPT" - -c y4m |
+ffmpeg \
+    -hide_banner \
+    -loglevel warning \
+    -f yuv4mpegpipe \
+    -i - \
+    -i "$INPUT" \
+    -map 0:v:0 \
+    -map 1:a:0? \
+    -map_metadata 1 \
+    -c:v libx264 \
+    -preset veryfast \
+    -crf 18 \
+    -profile:v high \
+    -level:v 4.2 \
+    -pix_fmt yuv420p \
+    -tag:v avc1 \
+    -c:a aac \
+    -b:a 192k \
+    -shortest \
+    -movflags +faststart \
+    -y "$OUTPUT"
+
+echo
+echo "📱 Updating Android media index..."
+
+termux-media-scan "$OUTPUT" >/dev/null 2>&1 || true
+
+echo
+echo "✅ OpenBlur finished!"
+echo
+echo "📁 $OUTPUT"
+echo

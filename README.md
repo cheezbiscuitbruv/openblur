@@ -357,3 +357,17 @@ Created for Android video creators who want serious motion-blur processing witho
 Motion blur. Open source. Android-native workflow.
 
 openblur
+
+## 🐞 Reporting bugs
+
+Open an issue on GitHub and include:
+
+- Phone model and Android version
+- Termux version
+- Video resolution and frame rate
+- Blur level (25 / 50 / 100 / 200)
+- The last ~20 lines of terminal output
+
+---
+
+OpenBlur is released under GPL-2.0. Dependencies keep their own licenses.
